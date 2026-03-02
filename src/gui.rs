@@ -698,7 +698,7 @@ impl NewsFeedApp {
             let available_sidebar_width = ui.available_width();
             let max_width = (available_sidebar_width - handle_width).max(220.0);
             let mut preferred_width = self.feed_box_width.clamp(220.0, max_width);
-            let feed_section_reserve = 140.0;
+            let feed_section_reserve = 240.0;
             let available_sidebar_height = ui.available_height();
             let feed_box_height = (available_sidebar_height - feed_section_reserve).clamp(180.0, available_sidebar_height);
 
