@@ -692,18 +692,6 @@ impl NewsFeedApp {
                     .size(10.5)
                     .color(TEXT_MUTED),
             );
-            ui.horizontal(|ui| {
-                if ui.button(RichText::new("Export sites…").color(TEXT_BRIGHT)).clicked() {
-                    if let Some(path) = FileDialog::new().set_file_name("nimbus-feeds.txt").save_file() {
-                        self.export_feeds_to_file(path);
-                    }
-                }
-                if ui.button(RichText::new("Import sites…").color(TEXT_BRIGHT)).clicked() {
-                    if let Some(path) = FileDialog::new().pick_file() {
-                        self.import_feeds_from_file(path);
-                    }
-                }
-            });
             ui.separator();
 
             let handle_width = 10.0;
@@ -890,6 +878,19 @@ impl NewsFeedApp {
                     self.discover_and_add_feed(urls);
                 }
             }
+
+            ui.horizontal(|ui| {
+                if ui.button(RichText::new("Export sites…").color(TEXT_BRIGHT)).clicked() {
+                    if let Some(path) = FileDialog::new().set_file_name("nimbus-feeds.txt").save_file() {
+                        self.export_feeds_to_file(path);
+                    }
+                }
+                if ui.button(RichText::new("Import sites…").color(TEXT_BRIGHT)).clicked() {
+                    if let Some(path) = FileDialog::new().pick_file() {
+                        self.import_feeds_from_file(path);
+                    }
+                }
+            });
 
             if selected != self.selected_feed {
                 self.selected_feed = selected;
