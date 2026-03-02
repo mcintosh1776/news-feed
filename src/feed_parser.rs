@@ -1,5 +1,7 @@
 use anyhow::Result;
 use chrono::{DateTime, Utc};
+use std::hash::{Hash, Hasher};
+use std::collections::hash_map::DefaultHasher;
 use roxmltree::Document;
 
 #[derive(Debug, Clone)]
@@ -79,7 +81,9 @@ fn parse_rss_item(node: roxmltree::Node<'_, '_>) -> Option<ParsedEntry> {
 
 fn parse_atom_entry(node: roxmltree::Node<'_, '_>) -> Option<ParsedEntry> {
     let title = find_tag_text_node(node, "title").unwrap_or_else(|| "Untitled entry".to_string());
-    let id = find_tag_text_node(node, "id").unwrap_or_else(|| random_id());
+    let id = find_tag_text_node(node, "id").unwrap_or_else(|| {
+        fallback_entry_id(&link, &title, published.as_ref().map(|dt| dt.to_rfc3339()))
+    });
     let link = node
         .children()
         .find(|n| n.is_element() && n.tag_name().name() == "link")
@@ -137,7 +141,31 @@ fn trimmed(value: &str) -> String {
 }
 
 fn random_id() -> String {
-    format!("entry-{}", Utc::now().timestamp_millis())
+    let mut hasher = DefaultHasher::new();
+    Utc::now().timestamp_millis().hash(&mut hasher);
+    format!("entry-{:016x}", hasher.finish())
+}
+
+fn fallback_entry_id(link: &str, title: &str, published: Option<String>) -> String {
+    let mut hasher = DefaultHasher::new();
+    let mut seed = String::new();
+    if !link.trim().is_empty() {
+        seed.push_str(link.trim());
+    } else if !title.trim().is_empty() {
+        seed.push_str(title.trim());
+    } else if let Some(published) = &published {
+        seed.push_str(published);
+    } else {
+        return random_id();
+    }
+
+    if let Some(published) = published {
+        seed.push('|');
+        seed.push_str(&published);
+    }
+
+    seed.hash(&mut hasher);
+    format!("entry-{:016x}", hasher.finish())
 }
 
 pub fn looks_like_feed(xml: &str) -> bool {
