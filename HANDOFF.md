@@ -55,6 +55,28 @@ Session goal: build a Rust-native KDE-style RSS/Atom reader + CLI, iterate UX, r
    - decide whether `Cargo.toml` version should bump to `0.1.1` (currently still `0.1.0`)
 4. If tray reintroduction becomes desired, design a Wayland-friendly alternative or remove expectation entirely.
 
+### Ubuntu packaging checklist (ready-to-run pass)
+
+1. Install packaging tooling:
+   - `cargo install cargo-deb`
+2. Add app assets and metadata to repo (recommended paths):
+   - `assets/nimbus.desktop`
+   - `assets/icons/nimbus.svg` (or a PNG set under hicolor sizes)
+3. Add `package.metadata.deb` in `Cargo.toml`:
+   - `name`, `maintainer`, `license-file`/`copyright`
+   - `depends` (runtime system libs needed by `eframe`)
+   - `assets` mapping for binary + desktop file + icon locations
+4. Build package:
+   - `cargo deb`
+5. Install/test locally:
+   - `sudo dpkg -i target/debian/nimbus_<version>_amd64.deb`
+   - `nimbus` launches GUI from Applications menu
+   - `update-desktop-database ~/.local/share/applications` if using a user install path
+6. Verify package quality:
+   - run `lintian target/debian/nimbus_<version>_amd64.deb`
+7. Optional distro-grade step:
+   - add Debian directory (`debian/` + `debian/changelog`, `debian/control`, `debian/rules`) for full PPA-style workflow.
+
 ## Useful commands
 
 - Run GUI: `cargo run --release`
@@ -62,4 +84,3 @@ Session goal: build a Rust-native KDE-style RSS/Atom reader + CLI, iterate UX, r
 - List unread: `cargo run --release -- list --unread-only --limit 50`
 - Export feeds: GUI button or CLI `nimbus export`
 - Import feeds: GUI button or CLI `nimbus import <file>`
-
