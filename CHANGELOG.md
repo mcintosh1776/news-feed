@@ -5,6 +5,7 @@ All notable changes to this project are listed here.
 ## [Unreleased]
 
 - Initial polish pass in progress.
+- Tray integration removed to simplify startup and runtime behavior. The GUI now runs as a standard window without system tray dependency or `--no-tray` mode.
 
 ## [0.1.0] - 2026-03-02
 

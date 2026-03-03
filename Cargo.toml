@@ -19,10 +19,8 @@ url = "2.5"
 notify-rust = "4.11"
 webbrowser = "1.0"
 eframe = "0.27"
-tray-icon = { version = "0.21", optional = true }
-gtk = { version = "0.18", optional = true }
 rfd = { version = "0.15", optional = true }
 
 [features]
 default = ["gui"]
-gui = ["tray-icon", "gtk", "rfd"]
+gui = ["rfd"]

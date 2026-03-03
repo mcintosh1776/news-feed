@@ -15,6 +15,7 @@ pub struct SyncReport {
     pub processed_feeds: usize,
     pub processed_entries: usize,
     pub new_entries: usize,
+    pub deduped_entries: usize,
     pub errors: Vec<String>,
 }
 
@@ -23,6 +24,7 @@ pub fn sync_all_feeds(store: &Store, client: &Client) -> SyncReport {
         processed_feeds: 0,
         processed_entries: 0,
         new_entries: 0,
+        deduped_entries: 0,
         errors: vec![],
     };
 
@@ -49,6 +51,11 @@ pub fn sync_all_feeds(store: &Store, client: &Client) -> SyncReport {
         report.errors.push(format!("cleanup: {err}"));
     }
 
+    match store.dedupe_duplicate_entries() {
+        Ok(entries) => report.deduped_entries += entries,
+        Err(err) => report.errors.push(format!("cleanup: {err}")),
+    }
+
     report
 }
 
@@ -58,6 +65,7 @@ pub fn sync_single_feed(store: &Store, client: &Client, feed_id: i64) -> Result<
         .ok_or_else(|| anyhow::anyhow!("missing feed {}", feed_id))?;
     let (_entries, inserted) = sync_feed(store, client, feed_id, &feed.url).context("sync feed")?;
     let _ = store.prune_read_entries_older_than_hours(READ_ENTRIES_RETENTION_HOURS)?;
+    let _ = store.dedupe_duplicate_entries()?;
     Ok(inserted)
 }
 

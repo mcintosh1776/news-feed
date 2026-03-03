@@ -35,16 +35,9 @@ cargo build --release
 
 ### Dependencies
 
-- KDE/Desktop GUI build requires the `libxdo` native library (for tray support):
-  - Debian/Ubuntu: `sudo apt install libxdo-dev`
-  - Fedora: `sudo dnf install xdotool-devel` (or distribution-specific `libxdo` package)
-  - Arch: `sudo pacman -S libxdo`
-- KDE/Desktop GUI **runtime** also needs AppIndicator (tray backend):
-  - Debian/Ubuntu: `sudo apt install libayatana-appindicator3-1 gir1.2-appindicator3-0.1 libgtk-3-0`
-  - Fedora: `sudo dnf install libayatana-appindicator` (package name may vary by release)
-  - Arch: `sudo pacman -S libayatana-appindicator`
-  - If your distro only provides the older package, install `libappindicator3-1` instead.
-- CLI-only usage without tray/GUI native deps:
+- KDE/Desktop GUI build has no extra Rust-internal dependencies:
+  - Install build prerequisites for your distro as usual for Rust GUI apps (`libgtk-3`/Wayland/X11 toolchain as provided by eframe/eframe dependencies).
+- CLI-only usage without GUI deps:
 
   ```bash
   cargo build --no-default-features
@@ -128,12 +121,6 @@ Run without command (or run with `cargo` until installed):
 
 ```bash
 cargo run --release
-```
-
-If your session has no desktop session (or tray libs are unavailable), run with:
-
-```bash
-nimbus --no-tray
 ```
 
 Default sync interval: 15 minutes (`--interval-minutes`).

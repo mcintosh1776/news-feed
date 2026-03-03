@@ -4,16 +4,9 @@ use std::fs;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use std::time::Duration;
-use std::process;
-use std::{env, panic};
 
 use anyhow::{Context, Result};
-use gtk;
 use eframe::egui::{self, Align, Color32, CursorIcon, FontId, Layout, Rounding, RichText, Stroke, ViewportCommand};
-use tray_icon::{
-    menu::{Menu, MenuEvent, MenuItem},
-    Icon, TrayIcon, TrayIconBuilder, TrayIconEvent,
-};
 use reqwest::blocking::Client;
 use notify_rust::Notification;
 use rfd::FileDialog;
@@ -21,10 +14,6 @@ use url::Url;
 
 use crate::{discovery, syncer};
 use crate::storage::{self, Feed, FeedEntry, Store};
-
-const TRAY_ID_OPEN: &str = "open";
-const TRAY_ID_SYNC: &str = "sync";
-const TRAY_ID_QUIT: &str = "quit";
 
 const ACCENT: Color32 = Color32::from_rgb(66, 176, 255);
 const TEXT_BRIGHT: Color32 = Color32::from_rgb(226, 243, 255);
@@ -151,10 +140,6 @@ pub struct NewsFeedApp {
     rx: Receiver<GuiMessage>,
     tx: Sender<GuiMessage>,
 
-    tray_icon: Option<TrayIcon>,
-    tray_enabled: bool,
-    tray_init_attempted: bool,
-
     store: Store,
     feeds: Vec<Feed>,
     entries: Vec<FeedEntry>,
@@ -169,7 +154,7 @@ pub struct NewsFeedApp {
 }
 
 impl NewsFeedApp {
-    fn new(db_path: PathBuf, sync_interval_minutes: u64, use_tray: bool, start_minimized: bool) -> Result<Self> {
+    fn new(db_path: PathBuf, sync_interval_minutes: u64, start_minimized: bool) -> Result<Self> {
         let store = Store::open(&db_path)?;
         let (tx, rx) = mpsc::channel();
         let mut app = Self {
@@ -177,9 +162,6 @@ impl NewsFeedApp {
             sync_interval: Duration::from_secs(sync_interval_minutes.saturating_mul(60)),
             rx,
             tx,
-            tray_icon: None,
-            tray_enabled: use_tray,
-            tray_init_attempted: false,
             store,
             feeds: vec![],
             entries: vec![],
@@ -198,117 +180,6 @@ impl NewsFeedApp {
         Ok(app)
     }
 
-    fn ensure_tray(&mut self) {
-        if !self.tray_enabled || self.tray_icon.is_some() || self.tray_init_attempted {
-            return;
-        }
-        self.tray_init_attempted = true;
-
-        let has_display = env::var_os("DISPLAY").is_some() || env::var_os("WAYLAND_DISPLAY").is_some();
-        if !has_display {
-            self.status = "tray disabled: no DISPLAY/WAYLAND_DISPLAY".to_string();
-            return;
-        }
-
-        if !gtk::is_initialized() {
-            if let Err(err) = gtk::init() {
-                self.status = format!("tray disabled: GTK init failed ({err})");
-                self.tray_enabled = false;
-                return;
-            }
-        }
-
-        match panic::catch_unwind(panic::AssertUnwindSafe(|| self.create_tray_icon())) {
-            Ok(Ok(tray)) => self.tray_icon = Some(tray),
-            Ok(Err(err)) => {
-                self.status = format!("tray unavailable: {err}");
-            }
-            Err(_) => {
-                self.status = "tray unavailable: GTK/AppIndicator initialization failed".to_string();
-            }
-        }
-    }
-
-    fn icon_for_tray() -> Result<Icon> {
-        const SIZE: u32 = 16;
-        const TOTAL_PIXELS: usize = (SIZE * SIZE * 4) as usize;
-
-        let mut bytes = vec![0u8; TOTAL_PIXELS];
-
-        for y in 0..SIZE {
-            for x in 0..SIZE {
-                let idx = ((y * SIZE + x) * 4) as usize;
-                if x == 0 || y == 0 || x == SIZE - 1 || y == SIZE - 1 || x == y || x + y == SIZE - 1 {
-                    bytes[idx] = 72;
-                    bytes[idx + 1] = 165;
-                    bytes[idx + 2] = 246;
-                    bytes[idx + 3] = 255;
-                } else {
-                    bytes[idx] = 12;
-                    bytes[idx + 1] = 24;
-                    bytes[idx + 2] = 48;
-                    bytes[idx + 3] = 220;
-                }
-            }
-        }
-
-        Icon::from_rgba(bytes, SIZE, SIZE).context("creating tray icon")
-    }
-
-    fn create_tray_icon(&self) -> Result<TrayIcon> {
-        let icon = Self::icon_for_tray()?;
-        let open_item = MenuItem::with_id(TRAY_ID_OPEN, &format!("Open {APP_NAME}"), true, None);
-        let sync_item = MenuItem::with_id(TRAY_ID_SYNC, "Sync now", true, None);
-        let quit_item = MenuItem::with_id(TRAY_ID_QUIT, "Quit", true, None);
-        let tray_menu = Menu::new();
-        tray_menu.append_items(&[&open_item, &sync_item, &quit_item])?;
-
-        let unread = self.store.unread_count(None).unwrap_or(0);
-        let tooltip = format!("{APP_NAME} ({unread} unread)");
-        let title = if unread == 0 {
-            None
-        } else {
-            Some(unread.to_string())
-        };
-
-        TrayIconBuilder::new()
-            .with_menu(Box::new(tray_menu))
-            .with_tooltip(&tooltip)
-            .with_title(APP_NAME)
-            .with_menu_on_left_click(false)
-            .with_icon(icon)
-            .build()
-            .context("building tray icon")
-            .inspect(|tray| {
-                if let Some(tray_title) = title {
-                    tray.set_title(Some(tray_title));
-                }
-            })
-    }
-
-    fn refresh_tray_badge(&self) {
-        let tray = match &self.tray_icon {
-            Some(tray) => tray,
-            None => return,
-        };
-
-        if let Ok(unread) = self.store.unread_count(None) {
-            let tooltip = if unread == 0 {
-                APP_NAME.to_string()
-            } else {
-                format!("{APP_NAME} ({unread} unread)")
-            };
-
-            let _ = tray.set_tooltip(Some(tooltip));
-            let _ = tray.set_visible(true);
-            if unread == 0 {
-                tray.set_title::<&str>(None);
-            } else {
-                tray.set_title(Some(unread.to_string()));
-            }
-        }
-    }
-
     fn handle_window_visibility_commands(&mut self, ctx: &egui::Context) {
         if self.did_apply_window_state {
             return;
@@ -317,20 +188,13 @@ impl NewsFeedApp {
         if self.start_minimized {
             ctx.send_viewport_cmd(ViewportCommand::Visible(false));
             ctx.send_viewport_cmd(ViewportCommand::Minimized(true));
-            self.status = "started minimized to tray".to_string();
+            self.status = "started minimized".to_string();
         } else {
             ctx.send_viewport_cmd(ViewportCommand::Visible(true));
             ctx.send_viewport_cmd(ViewportCommand::Focus);
         }
 
         self.did_apply_window_state = true;
-    }
-
-    fn open_window(&self, ctx: &egui::Context) {
-        ctx.send_viewport_cmd(ViewportCommand::Visible(true));
-        ctx.send_viewport_cmd(ViewportCommand::Minimized(false));
-        ctx.send_viewport_cmd(ViewportCommand::Focus);
-        self.refresh_tray_badge();
     }
 
     fn spawn_sync_loop(&self) {
@@ -385,40 +249,7 @@ impl NewsFeedApp {
             300,
             0,
         )?;
-        self.refresh_tray_badge();
         Ok(())
-    }
-
-    fn handle_tray_events(&mut self, ctx: &egui::Context) {
-        if !self.tray_enabled || self.tray_icon.is_none() {
-            return;
-        }
-
-        let tray_events_ok = panic::catch_unwind(panic::AssertUnwindSafe(|| {
-            while let Ok(_event) = TrayIconEvent::receiver().try_recv() {
-                self.open_window(ctx);
-            }
-            while let Ok(event) = MenuEvent::receiver().try_recv() {
-                match event.id().as_ref() {
-                    TRAY_ID_SYNC => {
-                        self.sync_now();
-                    }
-                    TRAY_ID_OPEN => {
-                        self.open_window(ctx);
-                    }
-                    TRAY_ID_QUIT => {
-                        process::exit(0);
-                    }
-                    _ => {}
-                }
-            }
-        }));
-
-        if tray_events_ok.is_err() {
-            self.status = "tray event handling failed; disabling tray".to_string();
-            self.tray_icon = None;
-            self.tray_enabled = false;
-        }
     }
 
     fn sync_now(&self) {
@@ -1065,9 +896,7 @@ impl NewsFeedApp {
 
 impl eframe::App for NewsFeedApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.ensure_tray();
         self.handle_window_visibility_commands(ctx);
-        self.handle_tray_events(ctx);
 
         while let Ok(message) = self.rx.try_recv() {
             match message {
@@ -1128,7 +957,7 @@ impl eframe::App for NewsFeedApp {
     }
 }
 
-pub fn run_gui(db_path: &Path, interval: u64, use_tray: bool, start_minimized: bool) -> Result<()> {
+pub fn run_gui(db_path: &Path, interval: u64, start_minimized: bool) -> Result<()> {
     let native = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1180.0, 760.0])
@@ -1136,7 +965,7 @@ pub fn run_gui(db_path: &Path, interval: u64, use_tray: bool, start_minimized: b
         ..Default::default()
     };
     let path = db_path.to_path_buf();
-    let app = NewsFeedApp::new(path, interval, use_tray, start_minimized)?;
+    let app = NewsFeedApp::new(path, interval, start_minimized)?;
     eframe::run_native(
         APP_NAME,
         native,

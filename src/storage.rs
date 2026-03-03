@@ -111,6 +111,7 @@ impl Store {
         store.init()?;
         store.seed_default_feeds()?;
         store.dedupe_same_site_feeds()?;
+        let _ = store.dedupe_duplicate_entries()?;
         Ok(store)
     }
 
@@ -620,10 +621,105 @@ impl Store {
         let n: i64 = self.conn.query_row("SELECT COUNT(1) FROM feeds", [], |row| row.get(0))?;
         Ok(n)
     }
+
+    pub fn dedupe_duplicate_entries(&self) -> Result<usize> {
+        #[derive(Debug)]
+        struct EntryRow {
+            id: i64,
+            feed_id: i64,
+            link: String,
+            title: Option<String>,
+            published_at: Option<i64>,
+            inserted_at: i64,
+            read_at: Option<i64>,
+        }
+
+        let mut rows = Vec::new();
+        let mut stmt = self.conn.prepare(
+            "SELECT id, feed_id, link, title, published_at, inserted_at, read_at FROM entries ORDER BY inserted_at DESC",
+        )?;
+        let fetched = stmt.query_map([], |row| {
+            Ok(EntryRow {
+                id: row.get(0)?,
+                feed_id: row.get(1)?,
+                link: row.get(2)?,
+                title: row.get(3)?,
+                published_at: row.get(4)?,
+                inserted_at: row.get(5)?,
+                read_at: row.get(6)?,
+            })
+        })?;
+        for entry in fetched {
+            rows.push(entry?);
+        }
+
+        let mut buckets: HashMap<String, Vec<(i64, bool, i64)>> = HashMap::new();
+        for row in rows {
+            let key = entry_dedupe_key(row.feed_id, &row.link, row.title.as_deref(), row.published_at);
+            buckets
+                .entry(key)
+                .or_default()
+                .push((row.id, row.read_at.is_some(), row.inserted_at));
+        }
+
+        let mut removed_ids = Vec::new();
+        for mut cluster in buckets.into_values() {
+            if cluster.len() <= 1 {
+                continue;
+            }
+            cluster.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| b.2.cmp(&a.2)));
+
+            let keep_id = cluster[0].0;
+            for (id, _, _) in cluster.into_iter().skip(1) {
+                if id != keep_id {
+                    removed_ids.push(id);
+                }
+            }
+        }
+
+        if removed_ids.is_empty() {
+            return Ok(0);
+        }
+
+        let mut removed = 0usize;
+        for id in removed_ids {
+            removed += self
+                .conn
+                .execute("DELETE FROM entries WHERE id = ?1", params![id])?;
+        }
+        Ok(removed)
+    }
 }
 
 pub fn format_time(ts: Option<i64>) -> String {
     ts.and_then(|value| Utc.timestamp_opt(value, 0).single())
         .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
         .unwrap_or_else(|| "unknown".to_string())
+}
+
+fn entry_dedupe_key(
+    feed_id: i64,
+    link: &str,
+    title: Option<&str>,
+    published_at: Option<i64>,
+) -> String {
+    let link_key = normalize_link_for_dedupe(link);
+    let title_key = title.unwrap_or("").trim().to_lowercase();
+    let published_key = published_at.unwrap_or(0);
+    format!("{feed_id}\u{1f}{link_key}\u{1f}{title_key}\u{1f}{published_key}")
+}
+
+fn normalize_link_for_dedupe(raw: &str) -> String {
+    let trimmed = raw.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    match Url::parse(trimmed) {
+        Ok(mut parsed) => {
+            parsed.set_fragment(None);
+            parsed.to_string().trim_end_matches('/').to_ascii_lowercase()
+        }
+        Err(_) => trimmed.to_ascii_lowercase(),
+    }
 }

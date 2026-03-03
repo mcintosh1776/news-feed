@@ -21,12 +21,7 @@ fn main() -> anyhow::Result<()> {
             } else {
                 Some(std::path::Path::new(&args.db))
             })?;
-            gui::run_gui(
-                &db_path,
-                args.interval_minutes,
-                !args.no_tray,
-                args.start_minimized,
-            )?;
+            gui::run_gui(&db_path, args.interval_minutes, args.start_minimized)?;
             Ok(())
         }
         #[cfg(not(feature = "gui"))]

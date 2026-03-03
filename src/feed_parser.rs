@@ -81,9 +81,6 @@ fn parse_rss_item(node: roxmltree::Node<'_, '_>) -> Option<ParsedEntry> {
 
 fn parse_atom_entry(node: roxmltree::Node<'_, '_>) -> Option<ParsedEntry> {
     let title = find_tag_text_node(node, "title").unwrap_or_else(|| "Untitled entry".to_string());
-    let id = find_tag_text_node(node, "id").unwrap_or_else(|| {
-        fallback_entry_id(&link, &title, published.as_ref().map(|dt| dt.to_rfc3339()))
-    });
     let link = node
         .children()
         .find(|n| n.is_element() && n.tag_name().name() == "link")
@@ -92,12 +89,14 @@ fn parse_atom_entry(node: roxmltree::Node<'_, '_>) -> Option<ParsedEntry> {
         .or_else(|| find_tag_text_node(node, "link"))
         .unwrap_or_default();
 
-    let summary = find_tag_text_node(node, "summary").unwrap_or_default();
-    let content = find_tag_text_node(node, "content").unwrap_or_else(|| summary.clone());
-
     let published = find_tag_text_node(node, "published")
         .and_then(|raw| parse_datetime(&raw))
         .or_else(|| find_tag_text_node(node, "updated").and_then(|raw| parse_datetime(&raw)));
+    let id = find_tag_text_node(node, "id").unwrap_or_else(|| {
+        fallback_entry_id(&link, &title, published.as_ref().map(|dt| dt.to_rfc3339()))
+    });
+    let summary = find_tag_text_node(node, "summary").unwrap_or_default();
+    let content = find_tag_text_node(node, "content").unwrap_or_else(|| summary.clone());
 
     Some(ParsedEntry {
         id,

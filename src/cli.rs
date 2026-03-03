@@ -20,9 +20,6 @@ pub struct CliArgs {
     pub interval_minutes: u64,
 
     #[arg(long)]
-    pub no_tray: bool,
-
-    #[arg(long)]
     pub start_minimized: bool,
 
     #[arg(long, default_value = "")]
@@ -189,8 +186,11 @@ pub fn run(args: CliArgs) -> Result<()> {
         Commands::Sync => {
             let report = syncer::sync_all_feeds(&store, &client);
             println!(
-                "synced {} feeds, {} entries inspected, {} new",
-                report.processed_feeds, report.processed_entries, report.new_entries
+                "synced {} feeds, {} entries inspected, {} new, {} duplicates cleaned",
+                report.processed_feeds,
+                report.processed_entries,
+                report.new_entries,
+                report.deduped_entries
             );
             if !report.errors.is_empty() {
                 eprintln!("errors:");
@@ -209,6 +209,9 @@ pub fn run(args: CliArgs) -> Result<()> {
                 report.processed_entries,
                 report.new_entries
             );
+            if report.deduped_entries > 0 {
+                println!("{}: removed {} duplicate entries", chrono::Utc::now().format("%Y-%m-%d %H:%M:%S"), report.deduped_entries);
+            }
             if !report.errors.is_empty() {
                 for err in report.errors {
                     eprintln!("error: {err}");
